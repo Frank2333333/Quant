@@ -14,6 +14,7 @@ MA_COLUMNS = {
     "MA30": "Simple Moving Average (30)",
     "MA50": "Simple Moving Average (50)",
 }
+TOUCH_TOLERANCE_PCT = 0.1
 
 
 def fetch_a_share_snapshot() -> pd.DataFrame:
@@ -39,13 +40,13 @@ def fetch_a_share_snapshot() -> pd.DataFrame:
     return screener.get()
 
 
-def screen_stocks(snapshot: pd.DataFrame, max_pullback_pct: float) -> pd.DataFrame:
-    """Keep A-share stocks in MA5>MA10>MA20>MA30>MA50 and touching MA10."""
+def screen_stocks(snapshot: pd.DataFrame) -> pd.DataFrame:
+    """Keep A-share stocks in MA5>MA10>MA20>MA30>MA50 and touching MA10 today."""
     frame = snapshot.loc[snapshot["Type"].eq("stock")].copy()
     ma5, ma10, ma20, ma30, ma50 = (frame[column] for column in MA_COLUMNS.values())
     bullish_alignment = (ma5 > ma10) & (ma10 > ma20) & (ma20 > ma30) & (ma30 > ma50)
     frame["距MA10(%)"] = (frame["Low"] / ma10 - 1) * 100
-    pullback_without_breaking = (frame["Low"] >= ma10) & (frame["距MA10(%)"] <= max_pullback_pct)
+    pullback_without_breaking = (frame["Low"] >= ma10) & (frame["距MA10(%)"] <= TOUCH_TOLERANCE_PCT)
     result = frame.loc[bullish_alignment & pullback_without_breaking].copy()
     result["代码"] = result["Symbol"].str.split(":").str[-1]
     result = result.rename(columns={"Description": "名称", "Price": "最新价", "Low": "最低价"})
@@ -58,14 +59,12 @@ st.set_page_config(page_title="A股均线回踩筛选", page_icon="📈", layout
 st.title("A股均线回踩筛选")
 st.caption("数据源：TradingView 中国市场延时行情（通常约15分钟延迟），仅供研究，不构成投资建议。")
 
-max_pullback_pct = st.sidebar.slider("距 MA10 最大距离（%）", 0.1, 5.0, 1.0, 0.1)
 st.sidebar.markdown("""
 **筛选条件**
 
 1. MA5 > MA10 > MA20 > MA30 > MA50
-2. 最新日最低价 ≥ MA10
-3. 最低价距 MA10 不超过设定阈值
-4. 仅普通股票，自动剔除基金与指数
+2. 最新日最低价回踩至 MA10 上方 0–0.1%（不破MA10）
+3. 仅普通股票，自动剔除基金与指数
 """)
 
 @st.fragment(run_every="15m")
@@ -74,7 +73,7 @@ def market_panel() -> None:
     try:
         with st.spinner("正在获取A股行情…"):
             snapshot = fetch_a_share_snapshot()
-            result = screen_stocks(snapshot, max_pullback_pct)
+            result = screen_stocks(snapshot)
         st.session_state["result"] = result
         st.session_state["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     except Exception as error:

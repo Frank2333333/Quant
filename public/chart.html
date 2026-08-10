@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>股票图表</title>
+  <style>
+    body { margin: 0; background: #fff; color: #172033; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    header { box-sizing: border-box; display: flex; justify-content: space-between; align-items: center; height: 58px; padding: 0 20px; border-bottom: 1px solid #e6eaf0; }
+    h1 { margin: 0; font-size: 17px; } a { color: #1769e0; text-decoration: none; font-size: 14px; }
+    #legend { display: flex; flex-wrap: wrap; gap: 12px; padding: 10px 20px 0; font-size: 13px; }
+    #legend span::before { content: ''; display: inline-block; width: 12px; height: 3px; margin: 0 5px 3px 0; border-radius: 2px; background: var(--color); vertical-align: middle; }
+    #chart { height: calc(100vh - 98px); min-height: 480px; }
+    #error { padding: 24px; color: #b42318; }
+  </style>
+</head>
+<body>
+  <header><h1 id="title">股票日 K 图</h1><a id="tradingview" target="_blank" rel="noopener">在 TradingView 打开 ↗</a></header>
+  <div id="legend"></div><div id="chart"></div>
+  <script src="https://unpkg.com/lightweight-charts@4.2.2/dist/lightweight-charts.standalone.production.js"></script>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const symbol = params.get('symbol');
+    const name = params.get('name') || '';
+    const settings = [[5, '#2563eb'], [10, '#f97316'], [20, '#16a34a'], [30, '#9333ea'], [50, '#dc2626']];
+    const valid = /^(SSE|SZSE):\d{6}$/.test(symbol || '');
+    if (!valid) document.body.innerHTML = '<p id="error">无效的股票代码。</p>';
+    else {
+      document.title = `${symbol}${name ? ` · ${name}` : ''} · 股票图表`;
+      document.querySelector('#title').textContent = `${symbol}${name ? ` · ${name}` : ''} 日 K 图`;
+      document.querySelector('#tradingview').href = `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(symbol)}`;
+      document.querySelector('#legend').innerHTML = settings.map(([length, color]) => `<span style="--color:${color}">MA ${length}</span>`).join('');
+      const average = (data, length) => data.map((bar, index) => {
+        if (index < length - 1) return null;
+        const value = data.slice(index - length + 1, index + 1).reduce((sum, item) => sum + item.close, 0) / length;
+        return { time: bar.time, value };
+      }).filter(Boolean);
+      fetch(`/api/kline?symbol=${encodeURIComponent(symbol)}`).then(async response => {
+        if (!response.ok) throw new Error();
+        return response.json();
+      }).then(({ rows }) => {
+        const chart = LightweightCharts.createChart(document.querySelector('#chart'), {
+          layout: { background: { color: '#ffffff' }, textColor: '#475467' }, grid: { vertLines: { color: '#f0f2f5' }, horzLines: { color: '#f0f2f5' } },
+          timeScale: { borderColor: '#dfe3e8' }, rightPriceScale: { borderColor: '#dfe3e8' },
+        });
+        chart.addCandlestickSeries({ upColor: '#089981', downColor: '#f23645', borderVisible: false, wickUpColor: '#089981', wickDownColor: '#f23645' }).setData(rows);
+        const volume = chart.addHistogramSeries({ priceFormat: { type: 'volume' }, priceScaleId: '' });
+        volume.priceScale().applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
+        volume.setData(rows.map(bar => ({ time: bar.time, value: bar.volume, color: bar.close >= bar.open ? '#08998180' : '#f2364580' })));
+        settings.forEach(([length, color]) => chart.addLineSeries({ color, lineWidth: 2, priceLineVisible: false, lastValueVisible: false, title: `MA ${length}` }).setData(average(rows, length)));
+        chart.timeScale().fitContent();
+        new ResizeObserver(entries => chart.applyOptions({ width: entries[0].contentRect.width })).observe(document.querySelector('#chart'));
+      }).catch(() => { window.opener?.postMessage({ type: 'chart-unavailable', symbol }, location.origin); document.querySelector('#chart').innerHTML = '<p id="error">该股票暂不支持 K 线，已从首页隐藏。</p>'; });
+    }
+  </script>
+</body>
+</html>

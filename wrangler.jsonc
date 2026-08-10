@@ -1,0 +1,18 @@
+{
+  "$schema": "https://unpkg.com/wrangler@latest/config-schema.json",
+  "name": "a-share-ma-screener",
+  "main": "src/index.js",
+  "compatibility_date": "2026-08-10",
+  "workers_dev": false,
+  "routes": [
+    {
+      "pattern": "dotonly.xyz",
+      "custom_domain": true
+    }
+  ],
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*"]
+  }
+}

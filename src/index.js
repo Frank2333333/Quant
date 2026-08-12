@@ -29,21 +29,21 @@ function isStarST(data) {
 
 function baseCandidates(rows) {
   return rows.flatMap(({ s: symbol, d }) => {
-    const [name, description, exchange, type, price, open, low, volume, averageVolume, ma5, ma10, ma10Previous, ma20, ma30, ma50, volume1] = d;
-    if (type !== "stock" || isStarST(d) || ![price, open, low, volume, averageVolume, ma5, ma10, ma10Previous, ma20, ma30, ma50, volume1].every(Number.isFinite)) return [];
+    const [name, description, exchange, type, price, , low, volume, averageVolume, ma5, ma10, ma10Previous, ma20, ma30, ma50, volume1] = d;
+    if (type !== "stock" || isStarST(d) || ![price, low, volume, averageVolume, ma5, ma10, ma10Previous, ma20, ma30, ma50, volume1].every(Number.isFinite)) return [];
     const distance = (low / ma10 - 1) * 100;
     const priceDistance = (price / ma10 - 1) * 100;
     const trendSlope = (ma10 / ma10Previous - 1) * 100;
     const turnover = price * volume;
     const volumeRatio = volume / averageVolume;
-    const uptrend = ma5 > ma10 && ma10 > ma20 && ma20 > ma30 && ma10 > ma10Previous && [ma5, ma10, ma20, ma30].some(ma => ma >= ma50);
-    const pullback = low >= ma10 * 0.999 && low <= ma10 * 1.001;
-    const maSpacing = ma10 / ma20 - 1 <= 0.05 && ma10 / ma30 - 1 <= 0.08;
-    const shrinkingBearish = price < open && volume < volume1 && volume <= averageVolume;
-    if (!uptrend || !pullback || !maSpacing || !shrinkingBearish || turnover < 20_000_000) return [];
+    const trend = ma5 > ma10 && ma10 > ma20 && ma20 > ma30;
+    const pullback = Math.abs(distance) <= 0.1;
+    const maSpacing = ma10 / ma20 - 1 <= 0.10 && ma10 / ma30 - 1 <= 0.15;
+    const shrinkingVolume = volume < volume1 && volume <= averageVolume;
+    if (!trend || !pullback || !maSpacing || !shrinkingVolume || turnover < 100_000_000) return [];
     const confirmation = price >= ma10 ? "确认" : "观察";
     const volumeState = "缩量";
-    return [{ symbol, code: symbol.split(":").pop(), name: description || name, exchange, price, open, low, ma5, ma10, ma20, ma30, ma50, distance, priceDistance, trendSlope, turnover, volumeRatio, volumeState, confirmation }];
+    return [{ symbol, code: symbol.split(":").pop(), name: description || name, exchange, price, low, ma5, ma10, ma20, ma30, ma50, distance, priceDistance, trendSlope, turnover, volumeRatio, volumeState, confirmation }];
   });
 }
 
@@ -75,8 +75,7 @@ async function screen(rows) {
           + (signal.limitUpRecent ? 50 : 35)
           + 25 - Math.min(20, Math.abs(candidate.priceDistance) * 20)
           + (candidate.volumeRatio <= 0.5 ? 15 : 10)
-          + Math.min(10, candidate.trendSlope * 100)
-          + (candidate.turnover >= 100_000_000 ? 10 : 5),
+          + Math.min(10, candidate.trendSlope * 100),
         );
         return { ...candidate, limitUpRecent: signal.limitUpRecent, score };
       } catch (error) {
@@ -141,14 +140,23 @@ export default {
         if (!response.ok) return json({ error: "行情服务暂时不可用，请稍后重试。" }, 502);
         const data = await response.json();
         const sourceRows = data.data || [];
-        return json({
+        const result = {
           updatedAt: new Date().toISOString(),
           totalStocks: sourceRows.filter(({ d }) => d?.[3] === "stock" && !isStarST(d)).length,
           rows: await screen(sourceRows),
-        });
+        };
+        await env.SCREEN_CACHE.put("latest-screen", JSON.stringify(result));
+        return json(result);
       } catch (error) {
         return json({ error: "获取行情时发生网络错误，请稍后重试。" }, 502);
       }
+    }
+    if (url.pathname === "/api/latest") {
+      if (request.method !== "GET") return json({ error: "Method not allowed" }, 405);
+      const latest = await env.SCREEN_CACHE.get("latest-screen");
+      return latest
+        ? new Response(latest, { headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } })
+        : json({ error: "No saved result" }, 404);
     }
     if (url.pathname === "/api/kline") {
       if (request.method !== "GET") return json({ error: "Method not allowed" }, 405);

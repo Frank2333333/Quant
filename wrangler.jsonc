@@ -10,6 +10,12 @@
       "custom_domain": true
     }
   ],
+  "kv_namespaces": [
+    {
+      "binding": "SCREEN_CACHE",
+      "id": "30263c96b0db40ec9cad3da5ccc7b5db"
+    }
+  ],
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",

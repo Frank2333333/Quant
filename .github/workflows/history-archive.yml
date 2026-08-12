@@ -1,0 +1,31 @@
+name: Archive A-share daily history
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Run a normal daily archive, or the one-time 70-day backfill
+        required: true
+        default: daily
+        type: choice
+        options: [daily, backfill]
+  schedule:
+    - cron: "20 9 * * 1-5"
+
+permissions:
+  contents: read
+
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Archive Eastmoney daily bars
+        env:
+          HISTORY_INGEST_URL: https://dotonly.xyz/api/history/ingest
+          HISTORY_INGEST_TOKEN: ${{ secrets.HISTORY_INGEST_TOKEN }}
+        run: python scripts/archive_history.py ${{ inputs.mode || 'daily' }}
